@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>个人乱斗赛 - 圣三三重奏</title>
+    <!-- 【核心修改】引入 GoEasy 官方企业级通讯库 -->
+    <script type="text/javascript" src="https://cdn.goeasy.io/goeasy-2.6.6.min.js"></script>
+    <style>
+        body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #FAFAFA; color: #333; text-align: center; margin: 0; padding: 0; overflow-x: hidden; }
+        .container { background: white; border-radius: 15px; padding: 20px; max-width: 600px; margin: 5px auto; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        h1 { color: #1D3C78; margin-top: 0; font-size: 24px; }
+        
+        input, select { width: 85%; padding: 12px; margin: 8px 0; border: 2px solid #ddd; border-radius: 8px; font-size: 16px; text-align: center; box-sizing: border-box; }
+        button { background-color: #1D3C78; color: white; border: none; padding: 12px 20px; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 10px; transition: 0.2s; width: 90%; }
+        button:hover { background-color: #152b59; }
+        button:disabled { background-color: #B0BEC5 !important; cursor: not-allowed; }
+        
+        #lobby-screen, #waiting-screen, #play-screen { display: none; }
+
+        /* ---------------- 大厅选座 CSS ---------------- */
+        .seat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin: 20px 0; padding: 10px; background: #f9f9f9; border-radius: 15px; border: 2px solid #eee;}
+        .seat-box { height: 75px; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; border: 2px dashed #B0BEC5; background: #FAFAFA; transition: all 0.2s; position: relative;}
+        .seat-box.empty:hover { background: #ECEFF1; transform: scale(1.05); border-color: #90A4AE; }
+        .seat-box.occupied { cursor: not-allowed; border-style: solid; border-color: #B0BEC5; background: #ECEFF1; opacity: 0.9; }
+        .seat-box.my-seat { border: 3px solid #FBC02D; background: #FFFDE7 !important; box-shadow: 0 0 15px rgba(251,192,45,0.6); cursor: default; transform: scale(1.05); z-index: 5;}
+        .seat-number { position: absolute; top: 3px; left: 5px; font-size: 10px; color: #999; }
+        
+        /* ---------------- 圆桌布局与 3D翻牌 CSS ---------------- */
+        #round-table-area { position: relative; width: 100%; max-width: 600px; height: 450px; margin: 0 auto 20px auto; background: #E3F2FD; border-radius: 20px; box-shadow: inset 0 0 20px rgba(0,0,0,0.1); overflow: hidden; }
+        
+        #center-pool { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 160px; height: 160px; display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; align-items: center; z-index: 10; }
+
+        .table-card-wrapper { width: 32px; height: 48px; perspective: 1000px; }
+        .tcard-inner { position: relative; width: 100%; height: 100%; text-align: center; transition: transform 0.5s cubic-bezier(0.4, 0.2, 0.2, 1); transform-style: preserve-3d; box-shadow: 0 2px 5px rgba(0,0,0,0.3); border-radius: 4px; }
+        .tcard-inner.is-flipped { transform: rotateY(180deg); }
+        
+        .tcard-back, .tcard-front { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 4px; display: flex; flex-direction: column; justify-content: center; align-items: center; border: 1px solid #fff; box-sizing: border-box; }
+        .tcard-back { background: repeating-linear-gradient(45deg, #1D3C78, #1D3C78 6px, #152b59 6px, #152b59 12px); color: white; font-size: 12px; font-weight: bold; cursor: pointer; transition: transform 0.2s;}
+        .tcard-back:hover { box-shadow: 0 0 10px #FBC02D; border-color: #FBC02D; transform: scale(1.1); }
+        .tcard-front { background: white; transform: rotateY(180deg); border: 1px solid #1D3C78; }
+        .tcard-front .c-num { font-size: 18px; color: #D32F2F; font-weight: bold; line-height: 1; }
+        .tcard-front .c-text { font-size: 8px; color: #1D3C78; font-weight: bold; margin-top: 2px; line-height: 1; }
+        
+        .seat { position: absolute; width: 100px; text-align: center; transform: translate(-50%, -50%); transition: all 0.3s; z-index: 20; }
+        .seat-name { background: #FFF; padding: 4px 8px; border-radius: 12px; font-weight: bold; font-size: 14px; border: 2px solid #ccc; box-shadow: 0 2px 5px rgba(0,0,0,0.2); white-space: nowrap; position: relative; }
+        .seat.active .seat-name { background: #FFFDE7; border-color: #F57F17; color: #E65100; box-shadow: 0 0 15px #FFEB3B; transform: scale(1.1); }
+        .seat-info { font-size: 12px; color: #666; margin-top: 2px; }
+        
+        .seat-sets { display: flex; justify-content: center; gap: 2px; margin-top: 4px; flex-wrap: wrap; }
+        .mini-set { background: #E8F5E9; border: 1px solid #4CAF50; border-radius: 4px; padding: 1px 3px; font-size: 10px; color: #2E7D32; font-weight: bold; }
+
+        .seat-actions { position: absolute; top: -38px; left: 50%; transform: translateX(-50%); display: flex; gap: 5px; z-index: 30; white-space: nowrap; }
+        .ask-btn { padding: 6px 10px; border-radius: 6px; color: white; border: none; font-size: 12px; cursor: pointer; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.3); transition: transform 0.1s; }
+        .ask-btn:active { transform: scale(0.9); }
+        .ask-btn.low { background: #0288D1; }
+        .ask-btn.high { background: #D32F2F; }
+
+        .player-revealed { position: absolute; z-index: 40; width: 45px; height: 65px; border-radius: 6px; border: 2px solid #1D3C78; background: white; box-shadow: 0 5px 15px rgba(0,0,0,0.4); display: flex; flex-direction: column; align-items: center; justify-content: center; animation: popIn 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); }
+        @keyframes popIn { 0% { transform: translate(-50%, -50%) scale(0); } 100% { transform: translate(-50%, -50%) scale(1); } }
+        .player-revealed .c-num { font-size: 20px; font-weight: bold; color: #D32F2F; line-height: 1; }
+        .player-revealed .c-text { font-size: 9px; color: #1D3C78; font-weight: bold; margin-top: 2px; text-align: center; }
+
+        /* ---------------- 私人手牌区 ---------------- */
+        .private-area { background: #FFFDE7; border-top: 3px solid #FBC02D; padding: 15px; margin-top: -15px; padding-bottom: 30px; }
+        .hand-area { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 10px; }
+        .real-card { width: 60px; height: 85px; border-radius: 6px; border: 2px solid #1D3C78; background: white; box-shadow: 0 3px 6px rgba(0,0,0,0.2); display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .c-num { font-size: 24px; font-weight: bold; color: #D32F2F; line-height: 1; }
+        .c-text { font-size: 11px; color: #1D3C78; font-weight: bold; margin-top: 4px; text-align: center; line-height: 1.1; padding: 0 2px;}
+        
+        #turn-status { font-size: 16px; font-weight: bold; padding: 10px; border-radius: 8px; margin-bottom: 10px; }
+        .back-nav { position: absolute; top: 10px; left: 10px; font-size: 14px; color: #1D3C78; text-decoration: none; font-weight: bold; background: #E3F2FD; padding: 5px 10px; border-radius: 15px; border: 1px solid #90CAF9; z-index: 200;}
+    </style>
+</head>
+<body>
+
+    <a href="index.html" class="back-nav">🔙 返回大厅</a>
+
+    <!-- 1. 登录大厅 -->
+    <div id="lobby-screen" class="container" style="display: block; margin-top: 40px;">
+        <h1 style="color:#2196F3;">👤 个人乱斗赛</h1>
+        <p style="font-size: 14px; color:#666; margin-bottom: 20px;">2到6人局。加入后可点击空位调换座位。</p>
+        <input type="text" id="player-name" placeholder="输入你的名字 (必填)" maxlength="8">
+        
+        <div style="background: #f5f5f5; padding: 15px; border-radius: 10px; margin-top: 15px;">
+            <strong style="color: #1D3C78;">发起新游戏</strong>
+            <button id="create-room-btn" onclick="createRoom()" style="background-color: #D32F2F;">🏠 创建房间并加入</button>
+        </div>
+        <div style="background: #f5f5f5; padding: 15px; border-radius: 10px; margin-top: 15px;">
+            <strong style="color: #2E7D32;">加入朋友的游戏</strong>
+            <input type="text" id="room-code-input" placeholder="输入4位房间号" maxlength="4" style="text-transform: uppercase;">
+            <button id="join-room-btn" onclick="joinRoom()" style="background-color: #4CAF50;">📱 加入房间</button>
+        </div>
+        <p id="lobby-msg" style="color: #D32F2F; font-weight: bold; margin-top: 10px;"></p>
+    </div>
+
+    <!-- 2. 等待室 (选座) -->
+    <div id="waiting-screen" class="container" style="margin-top: 40px;">
+        <h2>房间号: <span id="display-room-code" style="color:#D32F2F; font-size: 32px; letter-spacing: 4px;">----</span></h2>
+        
+        <div id="host-settings" style="display:none; background:#FFFDE7; padding:15px; border-radius:10px; border:2px dashed #FBC02D; margin-bottom:15px;">
+            <strong style="color:#F57F17;">⚙️ 游戏模式设置 (仅房主)</strong><br>
+            <select id="mode-select" style="width: 100%; margin-top: 10px;">
+                <option value="standard">📜 标准模式 (凑齐3组获胜)</option>
+                <option value="basic">🌟 入门模式 (凑出连锁7，或凑齐3张7)</option>
+            </select>
+        </div>
+
+        <p style="margin-bottom: 5px; font-weight: bold;">点击空位选座 (可容纳6人)：</p>
+        <div id="seat-grid" class="seat-grid"></div>
+
+        <button id="start-btn" style="display: none;" onclick="startGame()">🎲 确认落座并开始</button>
+        <p id="waiting-msg" style="color: #1D3C78; font-weight: bold;"></p>
+    </div>
+
+    <!-- 3. 游戏主界面 -->
+    <div id="play-screen" style="display:none; width: 100%; max-width: 600px; margin: 0 auto;">
+        
+        <div id="turn-status" style="margin: 10px; margin-top: 40px;">加载中...</div>
+
+        <div id="round-table-area">
+            <div id="center-pool"></div>
+            <div id="player-revealed-cards"></div> 
+            <div id="seats-container"></div>
+        </div>
+
+        <div class="private-area">
+            <div style="font-weight: bold; color: #1D3C78; margin-bottom: 10px;">🖐️ 我的手牌 (已排序)</div>
+            <div id="my-hand" class="hand-area"></div>
+        </div>
+    </div>
+
+    <script>
+        const cardDefs = { 1:"一神", 2:"两性", 3:"三超德", 4:"四枢德", 5:"五伤", 6:"六水缸", 7:"圣神七恩", 8:"八端", 9:"九品天使", 10:"十诫", 11:"十一徒", 12:"十二宗徒" };
+
+        // ==========================================
+        // 【核心修改】GoEasy 配置
+        // ==========================================
+        const GOEASY_APP_KEY = "BC-8a5595c19d09495fb2da2ddf8be22b85";
+        let goeasy = null;
+        
+        // 每个人（包括房主）生成一个唯一的客户端 ID
+        let myPeerId = Math.random().toString(36).substring(2, 10); 
+        let channelName = ""; 
+        let isHost = false; 
+        let myPlayerName = "";
+        
+        let serverSeats = [null, null, null, null, null, null]; 
+
+        let gameState = {
+            mode: "standard", 
+            players: [], 
+            tableCards: [], 
+            activePlayerIndex: 0,
+            stageCards: [], 
+            isProcessing: false,
+            gameWonBy: null,
+            winReason: ""
+        };
+
+        function showScreen(id) {
+            document.getElementById('lobby-screen').style.display = 'none';
+            document.getElementById('waiting-screen').style.display = 'none';
+            document.getElementById('play-screen').style.display = 'none';
+            document.getElementById(id).style.display = 'block';
+        }
+
+        function resetLobbyButtons() {
+            const createBtn = document.getElementById('create-room-btn');
+            const joinBtn = document.getElementById('join-room-btn');
+            if(createBtn) { createBtn.disabled = false; createBtn.innerHTML = "🏠 创建房间并加入"; }
+            if(joinBtn) { joinBtn.disabled = false; joinBtn.innerHTML = "📱 加入房间"; }
+        }
+
+        // --- 初始化 GoEasy ---
+        function initGoEasy(onSuccess, onError) {
+            if (!goeasy) {
+                goeasy = GoEasy.getInstance({
+                    host: "hangzhou.goeasy.io", // 国内高速节点
+                    appkey: GOEASY_APP_KEY,
+                    modules: ['pubsub']
+                });
+            }
+            if (goeasy.getConnectionStatus() === 'connected') {
+                onSuccess(); return;
+            }
+            goeasy.connect({ onSuccess: onSuccess, onFailed: onError });
+        }
+
+        // --- 发送广播消息 ---
+        function publishMsg(payload) {
+            if(goeasy && channelName) {
+                goeasy.pubsub.publish({
+                    channel: channelName,
+                    message: JSON.stringify(payload)
+                });
+            }
+        }
+
+        // ==========================================
+        // 1. 建立与加入 (全网穿透版)
+        // ==========================================
+        function createRoom() {
+            myPlayerName = document.getElementById('player-name').value.trim();
+            if (!myPlayerName) return alert("请输入名字！");
+
+            const btn = document.getElementById('create-room-btn');
+            btn.disabled = true; btn.innerHTML = "⏳ 正在建房...";
+
+            isHost = true;
+            const roomCode = Math.random().toString(36).substring(2, 6).toUpperCase();
+            channelName = 'holy-ffa-' + roomCode; 
+            
+            initGoEasy(() => {
+                // 房主订阅频道，处理所有后端逻辑
+                goeasy.pubsub.subscribe({
+                    channel: channelName,
+                    onMessage: handleGoEasyMessage
+                });
+
+                showScreen('waiting-screen');
+                document.getElementById('display-room-code').innerText = roomCode;
+                document.getElementById('host-settings').style.display = 'block';
+                
+                // 房主自己加入1号座位
+                serverSeats[0] = { id: myPeerId, name: myPlayerName };
+                updateWaitingRoomUI();
+
+            }, (error) => {
+                document.getElementById('lobby-msg').innerText = "建房失败，请检查网络！";
+                resetLobbyButtons(); 
+            });
+        }
+
+        function joinRoom() {
+            myPlayerName = document.getElementById('player-name').value.trim();
+            const roomCode = document.getElementById('room-code-input').value.toUpperCase();
+            if (!myPlayerName || roomCode.length !== 4) return alert("输入有误！");
+
+            const btn = document.getElementById('join-room-btn');
+            btn.disabled = true; btn.innerHTML = "⏳ 正在连接...";
+            document.getElementById('lobby-msg').innerText = "";
+
+            isHost = false;
+            channelName = 'holy-ffa-' + roomCode;
+            
+            initGoEasy(() => {
+                goeasy.pubsub.subscribe({
+                    channel: channelName,
+                    onMessage: handleGoEasyMessage
+                });
+
+                // 客户端连接成功后，向频道广播自己的加入请求
+                publishMsg({ type: 'join', sender: myPeerId, name: myPlayerName });
+
+            }, (error) => {
+                document.getElementById('lobby-msg').innerText = "连接服务器失败！请重试。";
+                resetLobbyButtons(); 
+            });
+        }
+
+        // --- 统一的消息路由中心 ---
+        function handleGoEasyMessage(message) {
+            let data = JSON.parse(message.content);
+
+            // 【服务器端逻辑】只有房主会处理这些请求，并更新游戏状态
+            if (isHost) {
+                if (data.type === 'join') {
+                    let emptyIdx = serverSeats.indexOf(null);
+                    if (emptyIdx !== -1) { 
+                        serverSeats[emptyIdx] = { id: data.sender, name: data.name }; 
+                        updateWaitingRoomUI();
+                    }
+                }
+                else if (data.type === 'change_seat') {
+                    // 找到他原来的座位，移到新座位
+                    if (serverSeats[data.targetIndex] === null) {
+                        let currIdx = serverSeats.findIndex(s => s && s.id === data.sender);
+                        if (currIdx !== -1) {
+                            serverSeats[data.targetIndex] = serverSeats[currIdx];
+                            serverSeats[currIdx] = null;
+                            updateWaitingRoomUI();
+                        }
+                    }
+                }
+                else if (data.type === 'action' && !gameState.isProcessing) {
+                    handlePlayerAction(data.actionData);
+                }
+            }
+
+            // 【客户端逻辑】所有人都会收到界面更新广播
+            if (data.type === 'waiting_update') {
+                renderSeatSelection(data.seats, data.canStart, data.msg);
+                // 只要座位里有我，说明我成功加入了
+                if (data.seats.some(s => s && s.id === myPeerId)) {
+                    showScreen('waiting-screen');
+                    document.getElementById('display-room-code').innerText = channelName.split('-').pop();
+                }
+            }
+            else if (data.type === 'state') {
+                parseAndRenderState(data);
+            }
+        }
+
+        function updateWaitingRoomUI() {
+            let total = serverSeats.filter(s => s !== null).length;
+            let canStart = total >= 2;
+            let msg = canStart ? "✅ 房主可以点击开始！" : `当前：${total} 人。需至少 2 人！`;
+
+            // 房主将更新后的座位表广播给所有人
+            publishMsg({ 
+                type: 'waiting_update', seats: serverSeats, canStart: canStart, msg: msg
+            });
+        }
+
+        function renderSeatSelection(seats, canStart, msg) {
+            const grid = document.getElementById('seat-grid');
+            grid.innerHTML = '';
+            
+            seats.forEach((seat, i) => {
+                let boxClass = `seat-box`; 
+                if (seat === null) {
+                    grid.innerHTML += `<div class="${boxClass} empty" onclick="requestChangeSeat(${i})"><div class="seat-number">${i+1}</div><span style="font-size:12px; color:#666;">点击入座</span></div>`;
+                } else {
+                    let isMe = seat.id === myPeerId;
+                    let occClass = isMe ? 'my-seat' : 'occupied';
+                    let bgColor = isMe ? '#FFFDE7' : '#ECEFF1';
+                    grid.innerHTML += `
+                        <div class="${boxClass} ${occClass}" style="background:${bgColor};" ${isMe ? '' : `onclick="alert('该座位已有人')"`}>
+                            <div class="seat-number">${i+1}</div>
+                            <strong style="color:#1D3C78; font-size:18px;">${seat.name}</strong>
+                            ${isMe ? '<br><span style="font-size:12px; color:#D32F2F;">(我)</span>' : ''}
+                        </div>
+                    `;
+                }
+            });
+
+            document.getElementById('waiting-msg').innerText = msg;
+            if (isHost) {
+                document.getElementById('start-btn').style.display = canStart ? 'inline-block' : 'none';
+            }
+        }
+
+        function requestChangeSeat(index) {
+            publishMsg({ type: 'change_seat', sender: myPeerId, targetIndex: index });
+        }
+
+
+        // ==========================================
+        // 2. 服务器游戏逻辑 (仅房主运行)
+        // ==========================================
+        function startGame() {
+            gameState.mode = document.getElementById('mode-select').value;
+            let activeSeats = serverSeats.map((s, i) => s ? { ...s, originalIndex: i } : null).filter(s => s !== null);
+            let pCount = activeSeats.length;
+            
+            let deck = [];
+            for (let i = 1; i <= 12; i++) deck.push(i, i, i);
+            deck.sort(() => Math.random() - 0.5);
+
+            let cardsPerPlayer = pCount === 3 ? 9 : pCount === 4 ? 7 : pCount === 5 ? 6 : 5;
+            if (pCount === 2) cardsPerPlayer = 12;
+            if (pCount === 6) cardsPerPlayer = 5; 
+            
+            gameState.players = activeSeats.map((s) => {
+                let hand = deck.splice(0, cardsPerPlayer);
+                hand.sort((a, b) => a - b); 
+                return { id: s.id, name: s.name, hand: hand, sets: [] };
+            });
+            
+            gameState.tableCards = deck.map((v, i) => ({ id: i, val: v, state: 'hidden' }));
+            gameState.activePlayerIndex = 0;
+            gameState.stageCards = [];
+            gameState.gameWonBy = null;
+            gameState.winReason = "";
+            
+            syncStateToAll();
+        }
+
+        // --- 核心：将完整状态广播给所有人 ---
+        function syncStateToAll() {
+            let publicPlayers = gameState.players.map(p => ({
+                id: p.id, name: p.name, cardCount: p.hand.length, sets: p.sets
+            }));
+
+            // 提取所有人的手牌，打包发送，由客户端自己挑出属于自己的牌
+            let allHands = {};
+            gameState.players.forEach(p => { allHands[p.id] = p.hand; });
+
+            publishMsg({
+                type: 'state', 
+                mode: gameState.mode,
+                activePlayerIndex: gameState.activePlayerIndex,
+                activePlayerName: gameState.players[gameState.activePlayerIndex].name,
+                tableCards: gameState.tableCards, 
+                publicPlayers: publicPlayers, 
+                stageCards: gameState.stageCards,
+                allHands: allHands,
+                gameWonBy: gameState.gameWonBy,
+                reason: gameState.winReason
+            });
+        }
+
+        function handlePlayerAction(action) {
+            gameState.isProcessing = true;
+            let valRevealed = 0;
+
+            if (action.target === 'table') {
+                let tc = gameState.tableCards.find(c => c.id === action.tableId);
+                tc.state = 'revealed';
+                valRevealed = tc.val;
+                gameState.stageCards.push({ val: valRevealed, from: 'table', tableId: tc.id });
+            } 
+            else if (action.target === 'player') {
+                let targetP = gameState.players.find(p => p.id === action.playerId);
+                let popIndex = action.extreme === 'low' ? 0 : targetP.hand.length - 1;
+                valRevealed = targetP.hand.splice(popIndex, 1)[0]; 
+                gameState.stageCards.push({ val: valRevealed, from: 'player', playerId: targetP.id, wasLow: action.extreme === 'low' });
+            }
+
+            syncStateToAll(); 
+            setTimeout(() => checkMatch(), 1500); 
+        }
+
+        function checkMatch() {
+            let stage = gameState.stageCards;
+            let firstVal = stage[0].val;
+            let isMatch = stage.every(c => c.val === firstVal);
+
+            if (!isMatch) {
+                stage.forEach(c => {
+                    if (c.from === 'table') {
+                        let tc = gameState.tableCards.find(x => x.id === c.tableId);
+                        if(tc) tc.state = 'hidden';
+                    } else {
+                        let p = gameState.players.find(x => x.id === c.playerId);
+                        p.hand.push(c.val); p.hand.sort((a, b) => a - b);
+                    }
+                });
+                gameState.stageCards = [];
+                gameState.activePlayerIndex = (gameState.activePlayerIndex + 1) % gameState.players.length; 
+            } 
+            else {
+                if (stage.length === 3) {
+                    let activeP = gameState.players[gameState.activePlayerIndex];
+                    gameState.stageCards = []; 
+                    
+                    stage.forEach(c => {
+                        if(c.from === 'table') {
+                            let tc = gameState.tableCards.find(x => x.id === c.tableId);
+                            if(tc) tc.state = 'removed';
+                        }
+                    });
+
+                    activeP.sets.push(firstVal);
+                    
+                    let isWin = false; let winReason = "";
+
+                    if (gameState.mode === "standard") {
+                        if (activeP.sets.length >= 3) { isWin = true; winReason = "率先凑齐了 3 组圣言卡牌！"; }
+                    }
+                    else if (gameState.mode === "basic") {
+                        if (firstVal === 7) { isWin = true; winReason = "找到了至高的【圣神七恩】(凑齐7)！"; } 
+                        else {
+                            for (let i = 0; i < activeP.sets.length; i++) {
+                                for (let j = i + 1; j < activeP.sets.length; j++) {
+                                    let v1 = activeP.sets[i]; let v2 = activeP.sets[j];
+                                    if (v1 + v2 === 7 || Math.abs(v1 - v2) === 7) {
+                                        isWin = true; winReason = `凑齐了连锁卡牌 [${v1}] 和 [${v2}]！`; break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (isWin) {
+                        gameState.gameWonBy = activeP.name;
+                        gameState.winReason = winReason;
+                        syncStateToAll();
+                        return;
+                    }
+                }
+            }
+            gameState.isProcessing = false;
+            syncStateToAll();
+        }
+
+        // ==========================================
+        // 3. 客户端解析状态与 UI 渲染
+        // ==========================================
+        
+        function parseAndRenderState(data) {
+            // 找到我在游戏里的索引
+            let myIndex = data.publicPlayers.findIndex(p => p.id === myPeerId);
+            if (myIndex === -1) return; 
+            
+            // 组装给 renderPlayerUI 的 state 对象
+            let state = {
+                gameWonBy: data.gameWonBy,
+                reason: data.reason,
+                myTurn: myIndex === data.activePlayerIndex,
+                activePlayerName: data.activePlayerName,
+                tableCount: data.tableCards.length,
+                tableCards: data.tableCards,
+                stageCards: data.stageCards,
+                publicPlayers: data.publicPlayers,
+                myId: myPeerId,
+                myHand: data.allHands[myPeerId],
+                mySets: data.publicPlayers[myIndex].sets
+            };
+            
+            renderPlayerUI(state);
+        }
+
+        function renderPlayerUI(state) {
+            showScreen('play-screen');
+
+            if (state.gameWonBy) {
+                document.getElementById('play-screen').innerHTML = `
+                    <h1 style="color:#D32F2F; font-size:36px; margin-top:50px;">🎉 游戏结束 🎉</h1>
+                    <h2>恭喜 <span style="color:#2E7D32;">${state.gameWonBy}</span> 赢得了比赛！</h2>
+                    <p style="font-size:18px; font-weight:bold; color:#E65100;">${state.reason}</p>
+                    <button onclick="location.reload()" style="margin-top:30px;">返回大厅</button>
+                `;
+                return;
+            }
+
+            const statusEl = document.getElementById('turn-status');
+            if (state.myTurn) {
+                statusEl.innerText = "👉 轮到你了！点击圆桌暗牌，或点玩家头像上方按钮：";
+                statusEl.style.background = "#E8F5E9"; statusEl.style.color = "#2E7D32";
+            } else {
+                statusEl.innerText = `⏳ 等待 [${state.activePlayerName}] 翻牌...`;
+                statusEl.style.background = "#FFF3E0"; statusEl.style.color = "#E65100";
+            }
+
+            renderRoundTable(state);
+
+            const handArea = document.getElementById('my-hand');
+            handArea.innerHTML = '';
+            state.myHand.forEach(val => {
+                handArea.innerHTML += `<div class="real-card"><div class="c-num">${val}</div><div class="c-text">${cardDefs[val]}</div></div>`;
+            });
+        }
+
+        function renderRoundTable(state) {
+            const centerPool = document.getElementById('center-pool');
+            
+            if (centerPool.children.length !== state.tableCards.length) {
+                centerPool.innerHTML = '';
+                state.tableCards.forEach(c => {
+                    centerPool.innerHTML += `
+                        <div class="table-card-wrapper" id="tcard-wrap-${c.id}">
+                            <div class="tcard-inner" id="tcard-inner-${c.id}">
+                                <div class="tcard-back">暗</div>
+                                <div class="tcard-front">
+                                    <div class="c-num" id="tcard-num-${c.id}"></div>
+                                    <div class="c-text" id="tcard-text-${c.id}"></div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+
+            state.tableCards.forEach(c => {
+                const wrap = document.getElementById(`tcard-wrap-${c.id}`);
+                const inner = document.getElementById(`tcard-inner-${c.id}`);
+                
+                let canClick = state.myTurn && c.state === 'hidden' && state.stageCards.length < 3;
+                // 【核心修改】通过 GoEasy 发布 action 事件！
+                wrap.onclick = canClick ? () => sendAction({target: 'table', tableId: c.id}) : null;
+                wrap.querySelector('.tcard-back').style.cursor = canClick ? 'pointer' : 'default';
+
+                if (c.state === 'hidden') {
+                    inner.classList.remove('is-flipped');
+                    wrap.style.visibility = 'visible';
+                } 
+                else if (c.state === 'revealed') {
+                    document.getElementById(`tcard-num-${c.id}`).innerText = c.val;
+                    document.getElementById(`tcard-text-${c.id}`).innerText = cardDefs[c.val];
+                    inner.classList.add('is-flipped');
+                    wrap.style.visibility = 'visible';
+                } 
+                else if (c.state === 'removed') {
+                    wrap.style.visibility = 'hidden'; 
+                }
+            });
+
+            const pRevealedContainer = document.getElementById('player-revealed-cards');
+            pRevealedContainer.innerHTML = '';
+            
+            const seatsContainer = document.getElementById('seats-container');
+            seatsContainer.innerHTML = '';
+            
+            const radiusX = window.innerWidth > 500 ? 230 : 150; 
+            const radiusY = 160; 
+            const centerX = document.getElementById('round-table-area').offsetWidth / 2;
+            const centerY = 240; 
+            
+            const totalPlayers = state.publicPlayers.length;
+            let myIndex = state.publicPlayers.findIndex(p => p.id === state.myId);
+            let angleOffset = (Math.PI / 2) - (myIndex * (2 * Math.PI / totalPlayers));
+
+            state.publicPlayers.forEach((p, index) => {
+                let angle = index * (2 * Math.PI / totalPlayers) + angleOffset;
+                let x = centerX + radiusX * Math.cos(angle);
+                let y = centerY + radiusY * Math.sin(angle);
+
+                let revX = centerX + (radiusX - 85) * Math.cos(angle);
+                let revY = centerY + (radiusY - 65) * Math.sin(angle);
+
+                let pStageCards = state.stageCards.filter(c => c.from === 'player' && c.playerId === p.id);
+                pStageCards.forEach(c => {
+                    pRevealedContainer.innerHTML += `
+                        <div class="player-revealed" style="left:${revX}px; top:${revY}px; transform:translate(-50%,-50%);">
+                            <div class="c-num">${c.val}</div><div class="c-text">${cardDefs[c.val]}</div>
+                        </div>
+                    `;
+                });
+
+                let actionHtml = '';
+                if (state.myTurn && p.cardCount > 0 && state.stageCards.length < 3) {
+                    actionHtml = `
+                        <div class="seat-actions">
+                            <button class="ask-btn low" onclick="sendAction({target: 'player', playerId: '${p.id}', extreme: 'low'})">最小牌</button>
+                            <button class="ask-btn high" onclick="sendAction({target: 'player', playerId: '${p.id}', extreme: 'high'})">最大牌</button>
+                        </div>
+                    `;
+                }
+
+                let isMyTurn = p.name === state.activePlayerName ? 'active' : '';
+                let setsHtml = p.sets.map(s => `<div class="mini-set">${s}</div>`).join('');
+
+                seatsContainer.innerHTML += `
+                    <div class="seat ${isMyTurn}" style="left: ${x}px; top: ${y}px;">
+                        ${actionHtml}
+                        <div class="seat-name">${p.name} ${p.id === state.myId ? '(我)' : ''}</div>
+                        <div class="seat-info">剩 ${p.cardCount} 张</div>
+                        <div class="seat-sets">${setsHtml}</div>
+                    </div>
+                `;
+            });
+        }
+
+        // 【核心修改】向房间频道广播自己的操作！
+        function sendAction(data) {
+            document.getElementById('turn-status').innerText = "⏳ 判定中...";
+            publishMsg({ type: 'action', sender: myPeerId, actionData: data });
+        }
+    </script>
+</body>
+</html>
