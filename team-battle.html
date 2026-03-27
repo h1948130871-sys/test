@@ -112,8 +112,8 @@
         <div id="host-settings" style="display:none; background:#FFFDE7; padding:15px; border-radius:10px; border:2px dashed #FBC02D; margin-bottom:15px;">
             <strong style="color:#F57F17;">⚙️ 游戏模式设置 (仅房主)</strong><br>
             <select id="mode-select" style="width: 100%; margin-top: 10px;">
-                <option value="team-standard">⚔️ 团队标准战 (队伍凑齐3组获胜)</option>
-                <option value="team-basic">⚔️ 团队入门战 (队伍凑齐连锁7，或拿3张7)</option>
+                <option value="team-standard">⚔️ 团队标准战 (队伍凑齐3组牌)</option>
+                <option value="team-basic">⚔️ 团队入门战 (队伍凑齐连锁的两组牌，或拿一组7)</option>
             </select>
         </div>
 
@@ -125,6 +125,10 @@
     </div>
 
     <div id="play-screen" style="display:none; width: 100%; max-width: 600px; margin: 0 auto;">
+        <audio id="bgm-audio" loop>
+            <source src="Lord-is-love.mp3" type="audio/mpeg">
+        </audio>
+        <button id="host-music-btn" onclick="toggleHostMusic()" style="display:none; background:#4CAF50; width:auto; padding:8px 15px; margin: 10px auto; border-radius: 8px; color: white; font-weight: bold; border: none; cursor: pointer;">🎵 播放音乐 (仅房主可见)</button>
         <div id="team-banner">加载中...</div>
 
         <div class="public-sets-board">
@@ -162,7 +166,7 @@
     </div>
 
     <script>
-        const cardDefs = { 1:"一神", 2:"两性", 3:"三超德", 4:"四枢德", 5:"五伤", 6:"六水缸", 7:"圣神七恩", 8:"八端", 9:"九品天使", 10:"十诫", 11:"十一徒", 12:"十二宗徒" };
+        const cardDefs = { 1:"至一教会", 2:"神人二性", 3:"三位一体", 4:"四部福音", 5:"神圣五伤", 6:"六日创世", 7:"七件圣事", 8:"真福八端", 9:"九品天使", 10:"天主十诫", 11:"十一忠徒", 12:"十二宗徒" };
 
         // ==========================================
         // 【核心修改】GoEasy 配置
@@ -271,6 +275,16 @@
         // --- 统一消息路由 ---
         function handleGoEasyMessage(message) {
             let data = JSON.parse(message.content);
+            // 接收音乐控制指令
+            if (data.type === 'music_control') {
+                let audio = document.getElementById('bgm-audio');
+                if (data.action === 'play') {
+                    // 尝试播放音乐，如果浏览器拦截则在后台静默输出提示
+                    audio.play().catch(e => console.log("等待玩家互动后自动播放"));
+                } else {
+                    audio.pause();
+                }
+            }
 
             if (isHost) {
                 if (data.type === 'join') {
@@ -633,6 +647,10 @@
 
         function renderPlayerUI(state) {
             showScreen('play-screen');
+            // 只有房主才能看到音乐播放按钮
+            if (isHost) {
+                document.getElementById('host-music-btn').style.display = 'block';
+            }
 
             if (state.gameWonBy) {
                 document.getElementById('play-screen').innerHTML = `
@@ -714,38 +732,51 @@
             });
 
             const pRevealedContainer = document.getElementById('player-revealed-cards');
+        // 【修正点 1】只有在桌面上真的没有牌时，才清空容器。保留已有的牌，防止动画重置。
+        if (state.stageCards.length === 0) {
             pRevealedContainer.innerHTML = '';
-            const seatsContainer = document.getElementById('seats-container');
-            seatsContainer.innerHTML = '';
-            
-            const radiusX = window.innerWidth > 500 ? 230 : 150; 
-            const radiusY = 160; 
-            const centerX = document.getElementById('round-table-area').offsetWidth / 2;
-            const centerY = 240; 
-            
-            const totalPlayers = state.publicPlayers.length;
-            let myIndex = state.publicPlayers.findIndex(p => p.id === state.myId);
-            let angleOffset = (Math.PI / 2) - (myIndex * (2 * Math.PI / totalPlayers));
+        }
+        
+        const seatsContainer = document.getElementById('seats-container');
+        seatsContainer.innerHTML = '';
+        
+        const radiusX = window.innerWidth > 500 ? 230 : 150; 
+        const radiusY = 160; 
+        const centerX = document.getElementById('round-table-area').offsetWidth / 2;
+        const centerY = 240; 
+        
+        const totalPlayers = state.publicPlayers.length;
+        let myIndex = state.publicPlayers.findIndex(p => p.id === state.myId);
+        let angleOffset = (Math.PI / 2) - (myIndex * (2 * Math.PI / totalPlayers));
 
-            state.publicPlayers.forEach((p, index) => {
-                let angle = index * (2 * Math.PI / totalPlayers) + angleOffset;
-                let x = centerX + radiusX * Math.cos(angle);
-                let y = centerY + radiusY * Math.sin(angle);
+        state.publicPlayers.forEach((p, index) => {
+            let angle = index * (2 * Math.PI / totalPlayers) + angleOffset;
+            let x = centerX + radiusX * Math.cos(angle);
+            let y = centerY + radiusY * Math.sin(angle);
 
-                let revX = centerX + (radiusX - 85) * Math.cos(angle);
-                let revY = centerY + (radiusY - 65) * Math.sin(angle);
+            let revX = centerX + (radiusX - 85) * Math.cos(angle);
+            let revY = centerY + (radiusY - 65) * Math.sin(angle);
 
-                let pStageCards = state.stageCards.filter(c => c.from === 'player' && c.playerId === p.id);
-                pStageCards.forEach(c => {
-                    pRevealedContainer.innerHTML += `
-                        <div class="player-revealed" style="left:${revX}px; top:${revY}px; transform:translate(-50%,-50%);">
+            let pStageCards = state.stageCards.filter(c => c.from === 'player' && c.playerId === p.id);
+            pStageCards.forEach(c => {
+                // 【修正点 2】利用卡牌在数组中的索引生成唯一 ID
+                let globalIndex = state.stageCards.indexOf(c);
+                let cardId = `rev-card-${globalIndex}`;
+                
+                // 【修正点 3】只有当这张牌不存在于页面时，才追加它。
+                // 重点：使用 insertAdjacentHTML 而不是 innerHTML +=，这样不会销毁已存在的 DOM！
+                if (!document.getElementById(cardId)) {
+                    pRevealedContainer.insertAdjacentHTML('beforeend', `
+                        <div id="${cardId}" class="player-revealed" style="left:${revX}px; top:${revY}px; transform:translate(-50%,-50%);">
                             <div class="c-num">${c.val}</div><div class="c-text">${cardDefs[c.val]}</div>
                         </div>
-                    `;
-                });
+                    `);
+                }
+            });
 
-                let actionHtml = '';
-                if (state.myTurn && !state.swapPhaseActive && p.cardCount > 0 && state.stageCards.length < 3) {
+            // --- 下方的 actionHtml 和 seatsContainer 代码保持你原有的不变 ---
+            let actionHtml = '';
+            if (state.myTurn && !state.swapPhaseActive && p.cardCount > 0 && state.stageCards.length < 3) {
                     actionHtml = `
                         <div class="seat-actions">
                             <button class="ask-btn low" onclick="sendAction({target: 'player', playerId: '${p.id}', extreme: 'low'})">最小牌</button>
@@ -806,6 +837,21 @@
         function submitOfferCard(val) {
             document.getElementById('int-content').innerHTML = "<span style='color:#FFEB3B; font-weight:bold;'>已发出，等待全队操作完成...</span>";
             publishMsg({ type: 'swap_offer_card', sender: myPeerId, cardVal: val });
+        }
+    // ==========================================
+        // 音乐控制逻辑
+        // ==========================================
+        let isMusicPlaying = false;
+        function toggleHostMusic() {
+            isMusicPlaying = !isMusicPlaying;
+            let btn = document.getElementById('host-music-btn');
+            
+            // 更改按钮的外观和文字
+            btn.innerText = isMusicPlaying ? "⏸️ 暂停音乐" : "🎵 播放音乐";
+            btn.style.background = isMusicPlaying ? "#D32F2F" : "#4CAF50";
+
+            // 向房间里的所有人广播音乐控制指令
+            publishMsg({ type: 'music_control', action: isMusicPlaying ? 'play' : 'pause' });
         }
     </script>
 </body>
