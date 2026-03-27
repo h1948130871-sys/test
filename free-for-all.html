@@ -101,8 +101,8 @@
         <div id="host-settings" style="display:none; background:#FFFDE7; padding:15px; border-radius:10px; border:2px dashed #FBC02D; margin-bottom:15px;">
             <strong style="color:#F57F17;">⚙️ 游戏模式设置 (仅房主)</strong><br>
             <select id="mode-select" style="width: 100%; margin-top: 10px;">
-                <option value="standard">📜 标准模式 (凑齐3组获胜)</option>
-                <option value="basic">🌟 入门模式 (凑出连锁7，或凑齐3张7)</option>
+                <option value="standard">📜 标准模式 (凑齐3组牌)</option>
+                <option value="basic">🌟 入门模式 (凑出连锁的两组牌，或凑齐一组7)</option>
             </select>
         </div>
 
@@ -115,7 +115,12 @@
 
     <!-- 3. 游戏主界面 -->
     <div id="play-screen" style="display:none; width: 100%; max-width: 600px; margin: 0 auto;">
-        
+        <audio id="bgm-audio" loop>
+    <source src="Lord-is-love.mp3" type="audio/mpeg">
+</audio>
+
+<button id="host-music-btn" onclick="toggleHostMusic()" style="display:none; background:#4CAF50; width:auto; padding:8px 15px; margin: 10px auto; border-radius: 8px; color: white; font-weight: bold; border: none; cursor: pointer;">🎵 播放音乐 (仅房主可见)</button>
+
         <div id="turn-status" style="margin: 10px; margin-top: 40px;">加载中...</div>
 
         <div id="round-table-area">
@@ -131,7 +136,7 @@
     </div>
 
     <script>
-        const cardDefs = { 1:"一神", 2:"两性", 3:"三超德", 4:"四枢德", 5:"五伤", 6:"六水缸", 7:"圣神七恩", 8:"八端", 9:"九品天使", 10:"十诫", 11:"十一徒", 12:"十二宗徒" };
+        const cardDefs = { 1:"至一教会", 2:"神人二性", 3:"三位一体", 4:"四部福音", 5:"神圣五伤", 6:"六日创世", 7:"七件圣事", 8:"真福八端", 9:"九品天使", 10:"天主十诫", 11:"十一忠徒", 12:"十二宗徒" };
 
         // ==========================================
         // 【核心修改】GoEasy 配置
@@ -262,7 +267,16 @@
         // --- 统一的消息路由中心 ---
         function handleGoEasyMessage(message) {
             let data = JSON.parse(message.content);
-
+// 接收音乐控制指令
+            if (data.type === 'music_control') {
+                let audio = document.getElementById('bgm-audio');
+                if (data.action === 'play') {
+                    // 尝试播放音乐，如果浏览器拦截则在后台静默输出提示
+                    audio.play().catch(e => console.log("等待玩家互动后自动播放"));
+                } else {
+                    audio.pause();
+                }
+            }
             // 【服务器端逻辑】只有房主会处理这些请求，并更新游戏状态
             if (isHost) {
                 if (data.type === 'join') {
@@ -514,6 +528,10 @@
 
         function renderPlayerUI(state) {
             showScreen('play-screen');
+            // 只有房主才能看到音乐播放按钮
+            if (isHost) {
+                document.getElementById('host-music-btn').style.display = 'block';
+            }
 
             if (state.gameWonBy) {
                 document.getElementById('play-screen').innerHTML = `
@@ -544,8 +562,8 @@
         }
 
         function renderRoundTable(state) {
+            // 1. 处理中心桌面的暗牌 (这部分逻辑保持不变)
             const centerPool = document.getElementById('center-pool');
-            
             if (centerPool.children.length !== state.tableCards.length) {
                 centerPool.innerHTML = '';
                 state.tableCards.forEach(c => {
@@ -566,38 +584,33 @@
             state.tableCards.forEach(c => {
                 const wrap = document.getElementById(`tcard-wrap-${c.id}`);
                 const inner = document.getElementById(`tcard-inner-${c.id}`);
-                
                 let canClick = state.myTurn && c.state === 'hidden' && state.stageCards.length < 3;
-                // 【核心修改】通过 GoEasy 发布 action 事件！
                 wrap.onclick = canClick ? () => sendAction({target: 'table', tableId: c.id}) : null;
-                wrap.querySelector('.tcard-back').style.cursor = canClick ? 'pointer' : 'default';
-
+                
                 if (c.state === 'hidden') {
                     inner.classList.remove('is-flipped');
-                    wrap.style.visibility = 'visible';
-                } 
-                else if (c.state === 'revealed') {
+                } else if (c.state === 'revealed') {
                     document.getElementById(`tcard-num-${c.id}`).innerText = c.val;
                     document.getElementById(`tcard-text-${c.id}`).innerText = cardDefs[c.val];
                     inner.classList.add('is-flipped');
-                    wrap.style.visibility = 'visible';
-                } 
-                else if (c.state === 'removed') {
-                    wrap.style.visibility = 'hidden'; 
                 }
+                wrap.style.visibility = c.state === 'removed' ? 'hidden' : 'visible';
             });
 
+            // --- 【核心修复开始】 局部更新翻开的玩家牌 ---
             const pRevealedContainer = document.getElementById('player-revealed-cards');
-            pRevealedContainer.innerHTML = '';
-            
+            // 获取当前 DOM 中已经存在的卡片 ID
+            const existingCards = Array.from(pRevealedContainer.querySelectorAll('.player-revealed')).map(el => el.id);
+            // 记录这一轮渲染中“应该”存在的卡片 ID
+            let currentStageIds = [];
+
             const seatsContainer = document.getElementById('seats-container');
             seatsContainer.innerHTML = '';
-            
+
             const radiusX = window.innerWidth > 500 ? 230 : 150; 
             const radiusY = 160; 
             const centerX = document.getElementById('round-table-area').offsetWidth / 2;
             const centerY = 240; 
-            
             const totalPlayers = state.publicPlayers.length;
             let myIndex = state.publicPlayers.findIndex(p => p.id === state.myId);
             let angleOffset = (Math.PI / 2) - (myIndex * (2 * Math.PI / totalPlayers));
@@ -606,19 +619,28 @@
                 let angle = index * (2 * Math.PI / totalPlayers) + angleOffset;
                 let x = centerX + radiusX * Math.cos(angle);
                 let y = centerY + radiusY * Math.sin(angle);
-
                 let revX = centerX + (radiusX - 85) * Math.cos(angle);
                 let revY = centerY + (radiusY - 65) * Math.sin(angle);
 
+                // 渲染玩家翻开的牌
                 let pStageCards = state.stageCards.filter(c => c.from === 'player' && c.playerId === p.id);
-                pStageCards.forEach(c => {
-                    pRevealedContainer.innerHTML += `
-                        <div class="player-revealed" style="left:${revX}px; top:${revY}px; transform:translate(-50%,-50%);">
-                            <div class="c-num">${c.val}</div><div class="c-text">${cardDefs[c.val]}</div>
-                        </div>
-                    `;
+                pStageCards.forEach((c, idx) => {
+                    // 生成唯一ID：玩家ID + 牌面值 + 该玩家翻开的第几张
+                    let cardUniqueId = `rev-${p.id}-${c.val}-${idx}`;
+                    currentStageIds.push(cardUniqueId);
+
+                    // 如果这张牌还没在桌面上，才插入 HTML（触发 popIn 动画）
+                    if (!existingCards.includes(cardUniqueId)) {
+                        pRevealedContainer.insertAdjacentHTML('beforeend', `
+                            <div class="player-revealed" id="${cardUniqueId}" style="left:${revX}px; top:${revY}px; transform:translate(-50%,-50%);">
+                                <div class="c-num">${c.val}</div>
+                                <div class="c-text">${cardDefs[c.val]}</div>
+                            </div>
+                        `);
+                    }
                 });
 
+                // 渲染玩家头像和按钮 (保持你原来的逻辑)
                 let actionHtml = '';
                 if (state.myTurn && p.cardCount > 0 && state.stageCards.length < 3) {
                     actionHtml = `
@@ -628,12 +650,11 @@
                         </div>
                     `;
                 }
-
-                let isMyTurn = p.name === state.activePlayerName ? 'active' : '';
+                let isCurrentActive = p.name === state.activePlayerName ? 'active' : '';
                 let setsHtml = p.sets.map(s => `<div class="mini-set">${s}</div>`).join('');
 
                 seatsContainer.innerHTML += `
-                    <div class="seat ${isMyTurn}" style="left: ${x}px; top: ${y}px;">
+                    <div class="seat ${isCurrentActive}" style="left: ${x}px; top: ${y}px;">
                         ${actionHtml}
                         <div class="seat-name">${p.name} ${p.id === state.myId ? '(我)' : ''}</div>
                         <div class="seat-info">剩 ${p.cardCount} 张</div>
@@ -641,12 +662,35 @@
                     </div>
                 `;
             });
+
+            // 清理掉不再 stageCards 里的卡片（例如回合结束被收回的牌）
+            Array.from(pRevealedContainer.querySelectorAll('.player-revealed')).forEach(el => {
+                if (!currentStageIds.includes(el.id)) {
+                    el.remove();
+                }
+            });
+            // --- 【核心修复结束】 ---
         }
 
         // 【核心修改】向房间频道广播自己的操作！
         function sendAction(data) {
             document.getElementById('turn-status').innerText = "⏳ 判定中...";
             publishMsg({ type: 'action', sender: myPeerId, actionData: data });
+        }
+    // ==========================================
+        // 音乐控制逻辑
+        // ==========================================
+        let isMusicPlaying = false;
+        function toggleHostMusic() {
+            isMusicPlaying = !isMusicPlaying;
+            let btn = document.getElementById('host-music-btn');
+            
+            // 更改按钮的外观和文字
+            btn.innerText = isMusicPlaying ? "⏸️ 暂停音乐" : "🎵 播放音乐";
+            btn.style.background = isMusicPlaying ? "#D32F2F" : "#4CAF50";
+
+            // 向房间里的所有人广播音乐控制指令
+            publishMsg({ type: 'music_control', action: isMusicPlaying ? 'play' : 'pause' });
         }
     </script>
 </body>
